@@ -1,3 +1,7 @@
+"""
+뉴스 데이터 가져와서 전처리하는 py
+"""
+
 import pandas as pd
 import numpy as np
 import warnings
@@ -15,7 +19,7 @@ clf.load_prediction_model(model_dir=NEWS_OM_MODEL, num_categories=3, labels=['-1
 def preprocessing_folder(folder:str):
     """
     폴더이름을 입력받아 해당 폴더의 모든 엑셀파일을 읽어와서
-    원하는 컬럼만 남긴후 종목을 컬럼을 추가한 데이터 프레임을 반환하는 함수
+    원하는 컬럼만 남긴후 모두 합치는 전처리 함수
     """
     import pandas as pd
     import os
@@ -23,27 +27,20 @@ def preprocessing_folder(folder:str):
     file_list = os.listdir(folder)
 
     # 빈데이터 프레임 생성
-    blank = pd.DataFrame()
+    data = pd.DataFrame()
 
     for file in file_list:
         path = folder + "/" + str(file)
         temp = pd.read_excel(path)
+        temp = temp[['일자', '언론사', '제목', '통합 분류1']]
+        temp.rename(columns={'통합 분류1': '통합분류'}, inplace=True)
         temp.sort_values('일자', inplace=True)
-        temp = temp[temp['통합 분류1'].str.startswith('경제')]
-        temp = temp[['일자', '제목','언론사']]
-        temp['code'] = folder
-        temp.rename(columns={'제목': 'headline', '언론사': 'press', '일자': 'date'}, inplace=True)
 
-        data = pd.concat([blank, temp])
+        data = pd.concat([data, temp])
         print(f"{file} 전처리 완료")
 
     save_name = folder + ".csv"
-    # 파일로 저장할거라면 주석해제
-    # data.to_csv(save_name, encoding='utf-8') 
-
-    blank.reset_index(drop=True, inplace=True)
-    
-    return blank
+    data.to_csv(save_name, encoding='utf-8-sig')
 
 def preprocessing_file(file:str, company:str):
     """
@@ -79,8 +76,6 @@ def regex(df_news_data):
     import re
     import pandas as pd
 
-    print('정규표현식 전처리 시작')
-
     for i in range(len(df_news_data)):
         if i % 1000 == 0:
             now = datetime.datetime.now()
@@ -90,9 +85,7 @@ def regex(df_news_data):
         df_news_data['headline'][i] = re.sub(r'\([^)]*\)', '', df_news_data['headline'][i])
         df_news_data['headline'][i] = re.sub(r'\<[^)]*\>', '', df_news_data['headline'][i])
     
-    print('정규표현식 전처리 종료')
-
-    return df_news_data
+    return(df_news_data)
 
     # 이후 to_csv 변환
     # df_news_data.to_csv("news_data.csv")
@@ -119,8 +112,6 @@ def make_sentiment(df):
     뉴스데이터를 입력받아
     헤드라인의 긍부정 컬럼을 생성하는 함수
     """
-    import pandas as pd
-    
     print('헤드라인 긍부정 전처리 시작')
     title = df['headline']
     title_list = list(title)
@@ -142,35 +133,29 @@ def make_sentiment(df):
 
     df['senti'] = sentiment_col
     df['senti_proba'] = proba_col
-    # df_s = df.dropna(subset=['senti']).reset_index(drop=True)
-    # df_sh = df_s.dropna(subset=['headline']).reset_index(drop=True)
-    df.dropna(axis = 0, inplace=True)
-    id_len  = len(df)
+    # df = df.dropna(subset=['senti']).reset_index(drop=True)
 
-    df['id'] = range(0,id_len)
+    # df['id'] = range(0,len(df))
+    df = df.dropna(inplace=True)
+    df['id'] = range(0,len(df))
 
     news_df = df[['id', 'headline', 'press', 'senti', 'senti_proba']]
     id_df = df[['id', 'date', 'code']]
 
     news_df.to_csv('news_db_result.csv', encoding = 'utf-8', index=False)
     id_df.to_csv('id_db_result.csv', encoding = 'utf-8', index=False)
+
     
-    print('전체 전처리 완료')
+    # print('전체 전처리 완료')
     return df
+    
 
 if __name__ == "__main__":
-    
-    # folder = '뉴스데이터/'
-    # company = '네이버'
-    # data_dir = folder + company
-    
-    # data = preprocessing_folder(data_dir)
 
-    data = pd.read_csv('네이버.csv')
-
-    data = regex(data)
-    make_sentiment(data)
-    
-    # data['company'] = '삼성전자'
-    # data.to_csv('삼성전자_result.csv', encoding='utf-8')
-    
+    df = preprocessing_file('c_data/삼성전자','삼성전자')
+    df = regex(df)
+    # make_sentiment(df)
+    df['company'] = '삼성전자'
+    df.to_csv('삼성전자_result.csv', encoding='utf-8')
+    make_sentiment(df)
+    pass

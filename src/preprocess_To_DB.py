@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import warnings
 import datetime
+from konlpy.tag import Okt
 
 warnings.filterwarnings('ignore')
 
@@ -30,17 +31,36 @@ def preprocessing_folder(folder:str, code:str):
         temp = pd.read_excel(path)
         temp.sort_values('일자', inplace=True)
         temp = temp[temp['통합 분류1'].str.startswith('경제')]
-        temp = temp[['일자', '제목','언론사']]
+        temp = temp[['일자', '제목']]
         temp['code'] = code
-        temp.rename(columns={'제목': 'headline', '언론사': 'press', '일자': 'date'}, inplace=True)
+        temp.rename(columns={'제목': 'headline', '일자': 'date'}, inplace=True)
+        
+        okt = Okt()
+        headline = temp['headline']
+        keyword = []
+        for line in headline:
+            keyword.append(okt.nouns(line))
+        temp['keyword'] = keyword
 
+        keyword_temp_list = temp['keyword']
+        keyword_result_list = []
+
+        stopwords = ['코스피', '전자', '에스케이', '코스닥', '주식', '한국', '경제', '뉴스', '기자', '기업', '증권',
+        '종목', '마감', '예컨대', '가격', '새해', '시즌', '그룹', '동영상', '올해', '개월']
+        stopwords.append(code)
+
+        for k in keyword_temp_list:
+            keyword_result_list.append(' '.join(filter(lambda x : (len(x) >= 2) & (x not in stopwords), k)))
+
+        temp['keyword'] = keyword_result_list
+        
         blank = pd.concat([blank, temp])
         print(f"{file} 전처리 완료")
 
     blank.reset_index(drop=True, inplace=True)
 
-    save_name = folder + ".csv"
     # 파일로 저장할거라면 주석해제
+    # save_name = folder + ".csv"
     # blank.to_csv(save_name, encoding='utf-8') 
 
     return blank
@@ -112,7 +132,7 @@ def toDB(df):
     import sqlite3
 
     # db 경로는 로컬에 맞게 설정해야함
-    conn = sqlite3.connect("C:/Python_workspace/2jo_Final_Python/DB/final.db")
+    conn = sqlite3.connect("DB/2jo.db")
 
     # 커서 바인딩
     c = conn.cursor()
@@ -121,23 +141,63 @@ def toDB(df):
     for row in df.itertuples():
         temp = c.execute('SELECT seq from sqlite_sequence')
         seq = int(temp.fetchone()[0]) + 1
-        sql1 = "insert into news_db(headline, press, senti, senti_proba) values (?,?,?,?)"
-        c.execute(sql1, (row[2],row[3],row[5],row[6]))
+        sql1 = "insert into news_db(headline, keyword, senti, senti_proba) values (?,?,?,?)"
+        c.execute(sql1, (row[2],row[4],row[5],row[6]))
         sql2 = "insert into news_id(id, date, code) values (?,?,?)"
-        c.execute(sql2, (seq, row[1],row[4]))
+        c.execute(sql2, (seq, row[1],row[3]))
+    conn.commit()
+
+    print('DB 입력 완료')
+
+def StocktoDB(start, end, code:str):
+    '''
+    조회할 시작,끝 날짜와 종목이름을 입력받아
+    prkrx에서 조회한 OHLCV데이터를 DB에 입력하는 함수
+    '''
+    import pandas as pd
+    import sqlite3
+    from datetime import date
+    from pykrx import stock
+    from pykrx import bond
+    
+    # db 경로는 로컬에 맞게 설정해야함
+    conn = sqlite3.connect("D:/2jo_Final_Python2/DB/final.db")
+
+    # 커서 바인딩
+    c = conn.cursor()
+
+    # 종목명 설정, 추후에 딕셔너리 추가 필요!
+    ticker_dict = {'삼성전자' : '005930', 'SK하이닉스' : '000660', '네이버' : '035420'}
+
+    df_temp = stock.get_market_ohlcv(start, end, ticker_dict[code], adjusted=False)
+    f_rate = df_temp['등락률']
+
+    df = stock.get_market_ohlcv(start, end, ticker_dict[code])
+    df = pd.concat([df,f_rate],axis=1)
+
+    df.reset_index(inplace=True)
+    df['날짜'] = df['날짜'].apply(lambda x: x.strftime('%Y%m%d'))
+    df['날짜'] = df['날짜'].astype(int)
+    
+    # 데이터 프레임 각 행을 DB에 입력
+    for row in df.itertuples():
+        sql1 = "insert into stock_db(s_date, s_code, open, high, low, close, volume, f_rate) values (?,?,?,?,?,?,?,?)"
+        c.execute(sql1, (row[1], code, row[2], row[3], row[4], row[5], row[6], round(row[7], 2)))
     conn.commit()
 
     print('DB 입력 완료')
 
 if __name__ == "__main__":
     
-    folder = '뉴스데이터/'
-    company = 'temp'
-    data_dir = folder + company
+    # folder = '뉴스데이터/'
+    # company = '하이닉스'
+    # data_dir = folder + company
     
-    data = preprocessing_folder(data_dir, '임시')
-    data = regex(data)
-    data = make_sentiment(data)
-    # data.to_csv('temp.csv', encoding='utf-8')
-    toDB(data)
+    # data = preprocessing_folder(data_dir, 'SK하이닉스')
+    # data = data[:1000]
+    # data = regex(data)
+    # data = make_sentiment(data)
+    # # data.to_csv('temp.csv', encoding='utf-8')
+    # toDB(data)
+    StocktoDB('20170101', '20211231', 'SK하이닉스')
 
